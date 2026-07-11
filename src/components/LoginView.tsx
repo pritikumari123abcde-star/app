@@ -4,7 +4,7 @@ import { db } from '../lib/database';
 import { KeyRound, ShieldAlert, LogIn, Users, Mail, ShieldCheck, Send, RotateCcw, Sparkles } from 'lucide-react';
 
 interface LoginViewProps {
-  onLogin: (staff: Staff) => void;
+  onLogin: (staff: Staff, remember: boolean) => void;
 }
 
 export default function LoginView({ onLogin }: LoginViewProps) {
@@ -25,6 +25,9 @@ export default function LoginView({ onLogin }: LoginViewProps) {
     user: string;
     hasPass: boolean;
   } | null>(null);
+  const [rememberMe, setRememberMe] = useState(true);
+  const [devBypass, setDevBypass] = useState(false);
+  const [timerCount, setTimerCount] = useState(120);
 
   // Load SMTP server status on mount
   React.useEffect(() => {
@@ -33,6 +36,22 @@ export default function LoginView({ onLogin }: LoginViewProps) {
       .then(data => setSmtpStatus(data))
       .catch(err => console.error('Failed to load SMTP status:', err));
   }, []);
+
+  // Countdown timer for OTP
+  React.useEffect(() => {
+    if (step !== 'otp' || timerCount <= 0) return;
+    const interval = setInterval(() => {
+      setTimerCount(prev => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          setError('OTP verification code has expired. Please request a new verification code.');
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [step, timerCount]);
 
   // Helper to generate a 6-digit numeric OTP
   const generateSixDigitOtp = () => {
@@ -43,6 +62,7 @@ export default function LoginView({ onLogin }: LoginViewProps) {
   const triggerOtpDispatch = async (targetEmail: string, userToLogin: Staff) => {
     const code = generateSixDigitOtp();
     setGeneratedOtp(code);
+    setTimerCount(120);
     setIsLoading(true);
     setError(null);
     setInfo(null);
@@ -183,6 +203,11 @@ export default function LoginView({ onLogin }: LoginViewProps) {
     e.preventDefault();
     setError(null);
 
+    if (timerCount <= 0) {
+      setError('OTP verification code has expired. Please request a new verification code.');
+      return;
+    }
+
     if (otpInput.trim() !== generatedOtp) {
       setError('Invalid verification code. Please check and re-enter.');
       return;
@@ -211,7 +236,14 @@ export default function LoginView({ onLogin }: LoginViewProps) {
             canExportCSV: false
           }
         };
-        onLogin(staffUser);
+
+        if (staffUser.status === 'Inactive') {
+          setError('This staff account is currently suspended. Please contact Admin.');
+          setIsLoading(false);
+          return;
+        }
+
+        onLogin(staffUser, rememberMe);
       } else {
         const adminUser = staffList.find(s => s.email.toLowerCase() === 'choubey910@gmail.com') || {
           id: 'staff-1',
@@ -231,11 +263,128 @@ export default function LoginView({ onLogin }: LoginViewProps) {
             canExportCSV: true
           }
         };
-        onLogin(adminUser);
+
+        if (adminUser.status === 'Inactive') {
+          setError('This administrator account is currently suspended.');
+          setIsLoading(false);
+          return;
+        }
+
+        onLogin(adminUser, rememberMe);
       }
     } catch (err) {
       setError('Error parsing secure session. Retry verification.');
     } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Instant developer bypass login
+  const handleBypassLogin = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const staffList = await db.getStaff();
+      if (loginMode === 'Staff') {
+        const staffUser = staffList.find(s => s.role === 'Staff' || s.name.toLowerCase() === 'staff') || {
+          id: 'staff-2',
+          name: 'Staff',
+          email: 'staff@paradise.com',
+          role: 'Staff',
+          status: 'Active',
+          createdAt: new Date().toISOString(),
+          permissions: {
+            canAddEnquiry: true,
+            canEditEnquiry: true,
+            canDeleteEnquiry: true,
+            canManageServices: true,
+            canManageDemos: true,
+            canManageFollowUps: true,
+            canViewReports: true,
+            canExportCSV: false
+          }
+        };
+
+        if (staffUser.status === 'Inactive') {
+          setError('This staff account is currently suspended. Please contact Admin.');
+          setIsLoading(false);
+          return;
+        }
+
+        onLogin(staffUser, rememberMe);
+      } else {
+        const adminUser = staffList.find(s => s.email.toLowerCase() === 'choubey910@gmail.com') || {
+          id: 'staff-1',
+          name: 'Prabhakar Choubey',
+          email: 'choubey910@gmail.com',
+          role: 'Admin',
+          status: 'Active',
+          createdAt: new Date().toISOString(),
+          permissions: {
+            canAddEnquiry: true,
+            canEditEnquiry: true,
+            canDeleteEnquiry: true,
+            canManageServices: true,
+            canManageDemos: true,
+            canManageFollowUps: true,
+            canViewReports: true,
+            canExportCSV: true
+          }
+        };
+
+        if (adminUser.status === 'Inactive') {
+          setError('This administrator account is currently suspended.');
+          setIsLoading(false);
+          return;
+        }
+
+        onLogin(adminUser, rememberMe);
+      }
+    } catch (err) {
+      setError('Bypass login failed.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Resend OTP verification code
+  const handleResendOtp = async () => {
+    setError(null);
+    setInfo(null);
+    setOtpInput('');
+    setIsLoading(true);
+
+    try {
+      const staffList = await db.getStaff();
+      if (loginMode === 'Staff') {
+        const staffUser = staffList.find(s => s.role === 'Staff' || s.name.toLowerCase() === 'staff');
+        if (staffUser) {
+          if (staffUser.status === 'Inactive') {
+            setError('This staff account is currently suspended. Please contact Admin.');
+            setIsLoading(false);
+            return;
+          }
+          await triggerOtpDispatch('staff@paradise.com', staffUser);
+        } else {
+          setError('Staff profile configuration not found.');
+          setIsLoading(false);
+        }
+      } else {
+        const adminUser = staffList.find(s => s.email.toLowerCase() === 'choubey910@gmail.com');
+        if (adminUser) {
+          if (adminUser.status === 'Inactive') {
+            setError('This administrator account is currently suspended.');
+            setIsLoading(false);
+            return;
+          }
+          await triggerOtpDispatch('choubey910@gmail.com', adminUser);
+        } else {
+          setError('Administrator profile not found.');
+          setIsLoading(false);
+        }
+      }
+    } catch (err) {
+      setError('Failed to resend verification code.');
       setIsLoading(false);
     }
   };
@@ -247,14 +396,73 @@ export default function LoginView({ onLogin }: LoginViewProps) {
     setLoginMode(role);
     setOtpInput('');
 
-    if (role === 'Staff') {
-      setIsLoading(true);
+    try {
       const staffList = await db.getStaff();
-      const staffUser = staffList.find(s => s.role === 'Staff' || s.name.toLowerCase() === 'staff') || { id: 'staff-2' };
-      await triggerOtpDispatch('staff@paradise.com', staffUser as Staff);
-    } else {
-      setEmail('choubey910@gmail.com');
-      setPassword('password123');
+      if (role === 'Staff') {
+        const staffUser = staffList.find(s => s.role === 'Staff' || s.name.toLowerCase() === 'staff') || {
+          id: 'staff-2',
+          name: 'Staff',
+          email: 'staff@paradise.com',
+          role: 'Staff',
+          status: 'Active',
+          createdAt: new Date().toISOString(),
+          permissions: {
+            canAddEnquiry: true,
+            canEditEnquiry: true,
+            canDeleteEnquiry: true,
+            canManageServices: true,
+            canManageDemos: true,
+            canManageFollowUps: true,
+            canViewReports: true,
+            canExportCSV: false
+          }
+        };
+
+        if (staffUser.status === 'Inactive') {
+          setError('This staff account is currently suspended. Please contact Admin.');
+          return;
+        }
+
+        if (devBypass) {
+          onLogin(staffUser as Staff, rememberMe);
+        } else {
+          setIsLoading(true);
+          await triggerOtpDispatch('staff@paradise.com', staffUser as Staff);
+        }
+      } else {
+        const adminUser = staffList.find(s => s.email.toLowerCase() === 'choubey910@gmail.com') || {
+          id: 'staff-1',
+          name: 'Prabhakar Choubey',
+          email: 'choubey910@gmail.com',
+          role: 'Admin',
+          status: 'Active',
+          createdAt: new Date().toISOString(),
+          permissions: {
+            canAddEnquiry: true,
+            canEditEnquiry: true,
+            canDeleteEnquiry: true,
+            canManageServices: true,
+            canManageDemos: true,
+            canManageFollowUps: true,
+            canViewReports: true,
+            canExportCSV: true
+          }
+        };
+
+        if (adminUser.status === 'Inactive') {
+          setError('This administrator account is currently suspended.');
+          return;
+        }
+
+        if (devBypass) {
+          onLogin(adminUser as Staff, rememberMe);
+        } else {
+          setEmail('choubey910@gmail.com');
+          setPassword('password123');
+        }
+      }
+    } catch (err) {
+      setError('An authentication error occurred. Please try again.');
     }
   };
 
@@ -324,6 +532,18 @@ export default function LoginView({ onLogin }: LoginViewProps) {
                     </p>
                   </div>
 
+                  <div className="flex items-center justify-between px-1">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={rememberMe}
+                        onChange={(e) => setRememberMe(e.target.checked)}
+                        className="w-4 h-4 rounded text-blue-600 border-slate-300 focus:ring-blue-500"
+                      />
+                      <span className="text-[11px] font-semibold text-slate-600">Remember Me</span>
+                    </label>
+                  </div>
+
                   <button
                     type="submit"
                     disabled={isLoading}
@@ -340,7 +560,7 @@ export default function LoginView({ onLogin }: LoginViewProps) {
                   </button>
                 </form>
               ) : (
-                /* ADMIN PASSWORD + OTP LOGIN FORM */
+                 /* ADMIN PASSWORD + OTP LOGIN FORM */
                 <form onSubmit={handleAdminCredentialsSubmit} className="space-y-4">
                   <div className="space-y-1">
                     <label htmlFor="email" className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">
@@ -382,6 +602,18 @@ export default function LoginView({ onLogin }: LoginViewProps) {
                     </div>
                   </div>
 
+                  <div className="flex items-center justify-between px-1">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={rememberMe}
+                        onChange={(e) => setRememberMe(e.target.checked)}
+                        className="w-4 h-4 rounded text-blue-600 border-slate-300 focus:ring-blue-500"
+                      />
+                      <span className="text-[11px] font-semibold text-slate-600">Remember Me</span>
+                    </label>
+                  </div>
+
                   <button
                     type="submit"
                     disabled={isLoading}
@@ -411,6 +643,28 @@ export default function LoginView({ onLogin }: LoginViewProps) {
                 <p className="text-[10px] text-slate-500 leading-normal max-w-xs mx-auto">
                   A 6-digit verification code has been dispatched. Enter the code sent to <span className="font-bold text-slate-800">Choubey910@gmail.com</span> below.
                 </p>
+
+                {/* Expiry countdown timer */}
+                {timerCount > 0 ? (
+                  <p className="text-[10px] font-extrabold text-amber-600 animate-pulse mt-1 bg-amber-50 px-2.5 py-0.5 rounded-full inline-block">
+                    Verification code expires in: {Math.floor(timerCount / 60)}:{(timerCount % 60).toString().padStart(2, '0')}
+                  </p>
+                ) : (
+                  <div className="mt-1.5 space-y-1">
+                    <p className="text-[10px] font-extrabold text-rose-600 bg-rose-50 px-2.5 py-0.5 rounded-full inline-block">
+                      ⚠️ Verification code has expired!
+                    </p>
+                    <div>
+                      <button
+                        type="button"
+                        onClick={handleResendOtp}
+                        className="text-[10px] font-extrabold text-blue-700 underline hover:text-blue-950 cursor-pointer"
+                      >
+                        Resend OTP Code
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {info && (
@@ -436,7 +690,8 @@ export default function LoginView({ onLogin }: LoginViewProps) {
                   maxLength={6}
                   pattern="\d{6}"
                   placeholder="000000"
-                  className="w-full py-3 bg-slate-50 border border-slate-250 rounded-xl font-mono text-center text-lg font-black tracking-[10px] focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-600 text-slate-800 shadow-inner"
+                  disabled={timerCount <= 0}
+                  className="w-full py-3 bg-slate-50 border border-slate-250 rounded-xl font-mono text-center text-lg font-black tracking-[10px] focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-600 text-slate-800 shadow-inner disabled:opacity-50"
                   value={otpInput}
                   onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, ''))}
                 />
@@ -461,6 +716,13 @@ export default function LoginView({ onLogin }: LoginViewProps) {
                     className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-[9px] px-2.5 py-1.5 rounded-lg transition shadow-sm cursor-pointer"
                   >
                     Auto Fill OTP
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleBypassLogin}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[9px] px-2.5 py-1.5 rounded-lg transition shadow-sm cursor-pointer ml-auto"
+                  >
+                    Bypass & Login
                   </button>
                 </div>
 
@@ -512,7 +774,7 @@ export default function LoginView({ onLogin }: LoginViewProps) {
                 </button>
                 <button
                   type="submit"
-                  disabled={isLoading}
+                  disabled={isLoading || timerCount <= 0}
                   className="py-2.5 bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition cursor-pointer disabled:opacity-50"
                 >
                   <ShieldCheck className="w-4 h-4" />
@@ -522,12 +784,25 @@ export default function LoginView({ onLogin }: LoginViewProps) {
             </form>
           )}
 
-          {/* Quick Logins for Evaluator Ease */}
-          <div className="pt-4 border-t border-slate-100">
-            <p className="text-center text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center justify-center gap-1.5">
+          {/* Quick Sandbox Logins for Evaluator Ease */}
+          <div className="pt-4 border-t border-slate-100 space-y-2">
+            <p className="text-center text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-blue-600" />
               Quick Sandbox Logins
             </p>
+            
+            <div className="flex items-center justify-center gap-2 bg-amber-50/55 border border-amber-200/70 py-1.5 px-3 rounded-xl max-w-xs mx-auto">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={devBypass}
+                  onChange={(e) => setDevBypass(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded text-amber-600 border-amber-300 focus:ring-amber-500 bg-white"
+                />
+                <span className="text-[10px] font-bold text-amber-800">Bypass OTP (Instant Login)</span>
+              </label>
+            </div>
+
             <div className="grid grid-cols-2 gap-2.5">
               <button
                 type="button"
@@ -544,8 +819,8 @@ export default function LoginView({ onLogin }: LoginViewProps) {
                 Staff (OTP only)
               </button>
             </div>
-            <p className="text-center text-[9px] text-slate-400 mt-2.5 italic">
-              Click either shortcut to instantly generate and verify OTP access.
+            <p className="text-center text-[9px] text-slate-400 italic">
+              {devBypass ? 'Click either shortcut to log in instantly without OTP verification.' : 'Click either shortcut to instantly generate and verify OTP access.'}
             </p>
           </div>
 

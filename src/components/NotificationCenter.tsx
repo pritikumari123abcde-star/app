@@ -1,8 +1,8 @@
 import React from 'react';
 import { CRMNotification } from '../lib/notifications';
 import { 
-  Bell, Check, CheckCheck, Trash2, Mail, ArrowLeft, 
-  Clock, ExternalLink, Calendar, HelpCircle, Shield, AlertCircle
+  Bell, CheckCheck, Trash2, Mail, ArrowLeft, 
+  Clock, ExternalLink
 } from 'lucide-react';
 
 interface NotificationCenterProps {

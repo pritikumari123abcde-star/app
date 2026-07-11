@@ -62,6 +62,20 @@ export default function App() {
   // Syncing Visual Feedback State
   const [isSyncing, setIsSyncing] = useState(false);
 
+  // Connection / Sync Status
+  const [connectionStatus, setConnectionStatus] = useState({
+    isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
+    isSyncing: false,
+    pendingCount: 0
+  });
+
+  useEffect(() => {
+    const unsub = db.subscribeToConnectionStatus((status) => {
+      setConnectionStatus(status);
+    });
+    return unsub;
+  }, []);
+
   // Navigation Filter presets from Dashboard clicks
   const [dashFilterField, setDashFilterField] = useState<string | null>(null);
 
@@ -228,12 +242,69 @@ export default function App() {
 
   // Initialize and load session
   useEffect(() => {
-    const savedUser = localStorage.getItem('crm_active_user');
-    if (savedUser) {
+    let sessionStr = sessionStorage.getItem('crm_active_session');
+    if (!sessionStr) {
+      sessionStr = localStorage.getItem('crm_active_session');
+    }
+    
+    // Legacy fallback
+    if (!sessionStr) {
+      const legacyUser = localStorage.getItem('crm_active_user');
+      if (legacyUser) {
+        try {
+          const u = JSON.parse(legacyUser);
+          setCurrentUser(u);
+          // Migrate to session storage
+          const sessionData = {
+            user: u,
+            remember: false,
+            loginTime: Date.now(),
+            lastActive: Date.now()
+          };
+          sessionStorage.setItem('crm_active_session', JSON.stringify(sessionData));
+        } catch (e) {
+          localStorage.removeItem('crm_active_user');
+        }
+        return;
+      }
+    }
+
+    if (sessionStr) {
       try {
-        setCurrentUser(JSON.parse(savedUser));
+        const session = JSON.parse(sessionStr);
+        const now = Date.now();
+        // Remembered sessions expire in 30 days, unremembered session expires in 2 hours of inactivity/absolute
+        const maxAge = session.remember ? 30 * 24 * 60 * 60 * 1000 : 2 * 60 * 60 * 1000;
+        
+        if (now - session.loginTime > maxAge) {
+          localStorage.removeItem('crm_active_session');
+          sessionStorage.removeItem('crm_active_session');
+          triggerToast('Your security session has expired. Please log in again.', 'info');
+        } else {
+          // Verify active status with DB
+          db.getStaff().then(staffList => {
+            const fresh = staffList.find(s => s.id === session.user.id);
+            if (fresh && fresh.status === 'Inactive') {
+              localStorage.removeItem('crm_active_session');
+              sessionStorage.removeItem('crm_active_session');
+              triggerToast('Your account has been suspended. Please contact Admin.', 'error');
+              setCurrentUser(null);
+            } else {
+              setCurrentUser(session.user);
+              session.lastActive = now;
+              if (session.remember) {
+                localStorage.setItem('crm_active_session', JSON.stringify(session));
+              } else {
+                sessionStorage.setItem('crm_active_session', JSON.stringify(session));
+              }
+            }
+          }).catch(() => {
+            setCurrentUser(session.user);
+          });
+        }
       } catch (e) {
-        localStorage.removeItem('crm_active_user');
+        localStorage.removeItem('crm_active_session');
+        sessionStorage.removeItem('crm_active_session');
       }
     }
   }, []);
@@ -277,6 +348,37 @@ export default function App() {
       }),
       db.subscribeToStaff((data) => {
         if (isInitialLoading) checkLoadingState();
+        
+        // Real-time Suspended Staff Blocking & Permissions sync
+        if (currentUser) {
+          const freshMe = data.find(s => s.id === currentUser.id);
+          if (freshMe) {
+            if (freshMe.status === 'Inactive') {
+              handleLogout();
+              triggerToast('Your account is currently suspended. Access has been revoked.', 'error');
+            } else if (JSON.stringify(freshMe.permissions) !== JSON.stringify(currentUser.permissions)) {
+              const updatedMe = { ...currentUser, permissions: freshMe.permissions };
+              setCurrentUser(updatedMe);
+              const isRem = localStorage.getItem('crm_active_session') !== null;
+              const sKey = isRem ? 'localStorage' : 'sessionStorage';
+              const sessionStr = isRem 
+                ? localStorage.getItem('crm_active_session') 
+                : sessionStorage.getItem('crm_active_session');
+              if (sessionStr) {
+                try {
+                  const sObj = JSON.parse(sessionStr);
+                  sObj.user = updatedMe;
+                  if (isRem) {
+                    localStorage.setItem('crm_active_session', JSON.stringify(sObj));
+                  } else {
+                    sessionStorage.setItem('crm_active_session', JSON.stringify(sObj));
+                  }
+                } catch (e) {}
+              }
+              triggerToast('Your security permissions have been updated.', 'info');
+            }
+          }
+        }
       })
     ];
 
@@ -443,12 +545,26 @@ export default function App() {
     setTimeout(() => setToast(null), 3000);
   };
 
-  const handleLogin = async (user: Staff) => {
+  const handleLogin = async (user: Staff, remember: boolean = false) => {
     setCurrentUser(user);
-    localStorage.setItem('crm_active_user', JSON.stringify(user));
+    const sessionData = {
+      user,
+      remember,
+      loginTime: Date.now(),
+      lastActive: Date.now()
+    };
+
+    if (remember) {
+      localStorage.setItem('crm_active_session', JSON.stringify(sessionData));
+    } else {
+      sessionStorage.setItem('crm_active_session', JSON.stringify(sessionData));
+    }
+    // Clear legacy keys if present
+    localStorage.removeItem('crm_active_user');
+
     await loadAllStores();
     triggerToast(`Authenticated successfully as ${user.name}!`, 'success');
-    db.logActivity('system', 'User Login Successful', `Staff session initiated for ${user.email}`, user.name);
+    db.logActivity('system', 'User Login Successful', `Staff session initiated for ${user.email} (Remember Me: ${remember ? 'YES' : 'NO'})`, user.name);
   };
 
   const handleLogout = () => {
@@ -456,6 +572,8 @@ export default function App() {
       db.logActivity('system', 'User Logout', `Staff session closed for ${currentUser.email}`, currentUser.name);
     }
     setCurrentUser(null);
+    localStorage.removeItem('crm_active_session');
+    sessionStorage.removeItem('crm_active_session');
     localStorage.removeItem('crm_active_user');
     triggerToast('Logged out of CRM database.', 'info');
   };
@@ -491,7 +609,9 @@ export default function App() {
 
         // Trigger Notifications on important updates
         if (original) {
+          let notificationDispatched = false;
           if (original.status !== enquiryData.status) {
+            notificationDispatched = true;
             await triggerNotificationEvent(
               'status_change',
               'Customer Lead Status Updated',
@@ -501,10 +621,20 @@ export default function App() {
             );
           }
           if (original.assignedTo?.toLowerCase() !== enquiryData.assignedTo?.toLowerCase() && enquiryData.assignedTo) {
+            notificationDispatched = true;
             await triggerNotificationEvent(
               'assigned_followup',
               'Customer Enquiry Assigned to You',
               `The customer enquiry for ${enquiryData.customerName} has been assigned to you by ${currentUser?.name || 'Staff'}.`,
+              editingEnquiry.id,
+              enquiryData.assignedTo
+            );
+          }
+          if (!notificationDispatched) {
+            await triggerNotificationEvent(
+              'status_change',
+              'Customer Enquiry Details Modified',
+              `The enquiry details for customer ${enquiryData.customerName} have been modified by ${currentUser?.name || 'Staff'}.`,
               editingEnquiry.id,
               enquiryData.assignedTo
             );
@@ -563,10 +693,20 @@ export default function App() {
   const confirmDeleteEnquiry = async () => {
     if (!enquiryToDelete) return;
     const id = enquiryToDelete;
+    const targetEnq = enquiries.find(e => e.id === id);
     setEnquiryToDelete(null);
     try {
       await db.deleteEnquiry(id, currentUser?.email || 'System');
       triggerToast('Customer enquiry moved to Recycle Bin.', 'success');
+      if (targetEnq) {
+        await triggerNotificationEvent(
+          'status_change',
+          'Customer Enquiry Deleted',
+          `The enquiry for customer ${targetEnq.customerName} has been soft-deleted and moved to the Recycle Bin by ${currentUser?.name || 'Staff'}.`,
+          id,
+          targetEnq.assignedTo
+        );
+      }
     } catch (e) {
       triggerToast('Failed to move enquiry to Recycle Bin.', 'error');
     }
@@ -586,6 +726,17 @@ export default function App() {
     try {
       await db.restoreEnquiry(id, currentUser?.email || 'System');
       triggerToast('Customer enquiry restored successfully.', 'success');
+      const allEnqs = await db.getEnquiries(true);
+      const restoredEnq = allEnqs.find(e => e.id === id);
+      if (restoredEnq) {
+        await triggerNotificationEvent(
+          'status_change',
+          'Customer Enquiry Restored',
+          `The enquiry for customer ${restoredEnq.customerName} has been restored from the Recycle Bin by ${currentUser?.name || 'Staff'}.`,
+          id,
+          restoredEnq.assignedTo
+        );
+      }
     } catch (e) {
       triggerToast('Failed to restore customer enquiry.', 'error');
     }
@@ -596,8 +747,19 @@ export default function App() {
     const id = enquiryToPurge;
     setEnquiryToPurge(null);
     try {
+      const allEnqs = await db.getEnquiries(true);
+      const targetEnq = allEnqs.find(e => e.id === id);
       await db.permanentlyDeleteEnquiry(id, currentUser?.email || 'System');
       triggerToast('Customer enquiry permanently purged.', 'success');
+      if (targetEnq) {
+        await triggerNotificationEvent(
+          'status_change',
+          'Customer Enquiry Purged',
+          `The enquiry for customer ${targetEnq.customerName} and all associated records have been permanently deleted from the database by ${currentUser?.name || 'Staff'}.`,
+          undefined,
+          targetEnq.assignedTo
+        );
+      }
     } catch (e) {
       triggerToast('Failed to permanently purge enquiry.', 'error');
     }
@@ -614,10 +776,20 @@ export default function App() {
   const confirmDeleteService = async () => {
     if (!serviceToDelete) return;
     const id = serviceToDelete;
+    const targetSrv = services.find(s => s.id === id);
     setServiceToDelete(null);
     try {
       await db.deleteService(id, currentUser?.email || 'System');
       triggerToast('Service ticket deleted successfully.', 'success');
+      if (targetSrv) {
+        await triggerNotificationEvent(
+          'status_change',
+          'Service Repair Ticket Deleted',
+          `The service repair ticket for customer ${targetSrv.customerName} (Product: ${targetSrv.product}) has been deleted by ${currentUser?.name || 'Staff'}.`,
+          targetSrv.enquiryId.startsWith('custom-') ? undefined : targetSrv.enquiryId,
+          currentUser?.email
+        );
+      }
     } catch (e) {
       triggerToast('Failed to delete service ticket.', 'error');
     }
@@ -914,10 +1086,20 @@ export default function App() {
       triggerToast('Access Denied: You do not have permission to delete follow-ups.', 'error');
       return;
     }
+    const targetFup = followups.find(f => f.id === id);
     if (window.confirm('Are you sure you want to delete this follow-up call log?')) {
       try {
         await db.deleteFollowUp(id, currentUser?.email || 'System');
         triggerToast('Follow-up call log deleted successfully.', 'success');
+        if (targetFup) {
+          await triggerNotificationEvent(
+            'status_change',
+            'Follow-up Task Deleted',
+            `The scheduled follow-up call for customer ${targetFup.customerName} has been deleted by ${currentUser?.name || 'Staff'}.`,
+            targetFup.enquiryId,
+            currentUser?.email
+          );
+        }
       } catch (e) {
         triggerToast('Failed to delete follow-up.', 'error');
       }
@@ -1199,7 +1381,26 @@ export default function App() {
                   />
                   <div>
                     <span className="font-extrabold text-xs tracking-tight font-display text-slate-900">PARADISE GROUP CRM</span>
-                    <div className="text-[9px] text-slate-400 uppercase font-bold tracking-wider leading-none mt-0.5">Mobile Portal</div>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="text-[9px] text-slate-400 uppercase font-bold tracking-wider leading-none">Mobile Portal</span>
+                      <span className="text-[8px] text-slate-300">•</span>
+                      {!connectionStatus.isOnline ? (
+                        <span className="inline-flex items-center gap-1 text-[9px] text-rose-600 font-extrabold uppercase tracking-wider animate-pulse">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                          Offline
+                        </span>
+                      ) : connectionStatus.isSyncing || connectionStatus.pendingCount > 0 ? (
+                        <span className="inline-flex items-center gap-1 text-[9px] text-amber-600 font-extrabold uppercase tracking-wider animate-pulse">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                          Syncing ({connectionStatus.pendingCount})
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[9px] text-emerald-600 font-extrabold uppercase tracking-wider">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                          Cloud Synced
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
                 
@@ -1212,7 +1413,9 @@ export default function App() {
                   >
                     <Bell className="w-4 h-4 text-slate-600 hover:text-blue-700" />
                     {notifications.filter(n => !n.isRead).length > 0 && (
-                      <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border border-white animate-pulse" />
+                      <span className="absolute -top-1 -right-1 min-w-[16px] h-4 bg-rose-500 rounded-full border border-white flex items-center justify-center text-[8px] font-black text-white px-1 shadow-sm">
+                        {notifications.filter(n => !n.isRead).length}
+                      </span>
                     )}
                   </button>
 
@@ -1245,9 +1448,28 @@ export default function App() {
                       {activeTab === 'settings' && 'CRM Access Panel'}
                       {activeTab === 'installation' && 'Demo Installations'}
                     </h1>
-                    <p className="text-[10px] text-slate-400">
-                      Back to More Menu
-                    </p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-[10px] text-slate-400">
+                        Back to More Menu
+                      </p>
+                      <span className="text-[8px] text-slate-300">•</span>
+                      {!connectionStatus.isOnline ? (
+                        <span className="inline-flex items-center gap-1 text-[9px] text-rose-600 font-extrabold uppercase tracking-wider animate-pulse">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                          Offline
+                        </span>
+                      ) : connectionStatus.isSyncing || connectionStatus.pendingCount > 0 ? (
+                        <span className="inline-flex items-center gap-1 text-[9px] text-amber-600 font-extrabold uppercase tracking-wider animate-pulse">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                          Syncing ({connectionStatus.pendingCount})
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[9px] text-emerald-600 font-extrabold uppercase tracking-wider">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                          Cloud Synced
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -1259,7 +1481,9 @@ export default function App() {
                 >
                   <Bell className="w-4 h-4 text-slate-600 hover:text-blue-700" />
                   {notifications.filter(n => !n.isRead).length > 0 && (
-                    <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border border-white animate-pulse" />
+                    <span className="absolute -top-1 -right-1 min-w-[16px] h-4 bg-rose-500 rounded-full border border-white flex items-center justify-center text-[8px] font-black text-white px-1 shadow-sm">
+                      {notifications.filter(n => !n.isRead).length}
+                    </span>
                   )}
                 </button>
               </header>

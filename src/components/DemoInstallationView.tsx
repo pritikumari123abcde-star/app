@@ -748,8 +748,18 @@ export default function DemoInstallationView({
                     const id = deleteConfirmationId;
                     setDeleteConfirmationId(null);
                     try {
+                      const targetInst = installations.find(i => i.id === id);
                       await db.deleteInstallation(id, currentUser.email);
                       triggerToast('Record deleted successfully.', 'info');
+                      if (targetInst) {
+                        onTriggerNotification(
+                          'status_change',
+                          'Demo Installation Deleted',
+                          `The demo installation log for customer ${targetInst.customerName} has been deleted by ${currentUser.name}.`,
+                          targetInst.enquiryId,
+                          currentUser.email
+                        );
+                      }
                       loadInstallations();
                     } catch (e) {
                       triggerToast('Failed to delete record.', 'error');
