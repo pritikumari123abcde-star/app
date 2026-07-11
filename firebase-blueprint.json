@@ -1,0 +1,134 @@
+{
+  "entities": {
+    "staff": {
+      "title": "Staff Member",
+      "description": "An authorized store staff member or admin",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["Admin", "Staff"] },
+        "status": { "type": "string", "enum": ["Active", "Inactive"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "role", "status", "createdAt"]
+    },
+    "enquiry": {
+      "title": "Customer Enquiry",
+      "description": "A customer enquiry for electronics products or services",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerName": { "type": "string" },
+        "mobile": { "type": "string" },
+        "product": { "type": "string" },
+        "enquiryType": { "type": "string", "enum": ["Sales", "Service", "Demo", "General"] },
+        "source": { "type": "string", "enum": ["Walk-in", "Call", "WhatsApp", "JustDial", "Facebook", "Website", "Other"] },
+        "status": { "type": "string", "enum": ["New", "Interested", "Cold", "Hot", "Service Logged", "Demo Scheduled", "Converted", "Closed"] },
+        "createdAt": { "type": "string" },
+        "createdBy": { "type": "string" }
+      },
+      "required": ["id", "customerName", "mobile", "product", "enquiryType", "source", "status", "createdAt", "createdBy"]
+    },
+    "serviceLog": {
+      "title": "Service Log",
+      "description": "Logs of customer product servicing requests",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "enquiryId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "status": { "type": "string", "enum": ["Pending", "In Progress", "Completed", "Cancelled"] },
+        "loggedAt": { "type": "string" }
+      },
+      "required": ["id", "enquiryId", "customerName", "status", "loggedAt"]
+    },
+    "demoLog": {
+      "title": "Demo Log",
+      "description": "Logs of customer product demonstration sessions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "enquiryId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "product": { "type": "string" },
+        "brand": { "type": "string" },
+        "scheduledDate": { "type": "string" },
+        "status": { "type": "string", "enum": ["Scheduled", "Completed", "No Show", "Cancelled"] }
+      },
+      "required": ["id", "enquiryId", "customerName", "product", "brand", "scheduledDate", "status"]
+    },
+    "followupLog": {
+      "title": "Followup Log",
+      "description": "Logs of customer followups",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "enquiryId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "scheduledDate": { "type": "string" },
+        "type": { "type": "string", "enum": ["Call", "WhatsApp", "Visit", "Email"] },
+        "status": { "type": "string", "enum": ["Pending", "Completed", "Missed"] }
+      },
+      "required": ["id", "enquiryId", "customerName", "scheduledDate", "type", "status"]
+    },
+    "activityLog": {
+      "title": "Activity Log",
+      "description": "Audit and activity logs of actions performed in the CRM",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "type": { "type": "string", "enum": ["enquiry", "service", "demo", "followup", "staff", "system"] },
+        "action": { "type": "string" },
+        "details": { "type": "string" },
+        "user": { "type": "string" }
+      },
+      "required": ["id", "timestamp", "type", "action", "details", "user"]
+    },
+    "demoInstallation": {
+      "title": "Demo Installation",
+      "description": "Logs of custom demos and post-purchase installations",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "enquiryId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "status": { "type": "string", "enum": ["Pending", "In Progress", "Completed", "Cancelled"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "enquiryId", "customerName", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/staff/{staffId}": {
+      "schema": "staff",
+      "description": "Authorized CRM staff members collection"
+    },
+    "/enquiries/{enquiryId}": {
+      "schema": "enquiry",
+      "description": "Customer sales and service enquiries"
+    },
+    "/services/{serviceId}": {
+      "schema": "serviceLog",
+      "description": "Product repairs and support services"
+    },
+    "/demos/{demoId}": {
+      "schema": "demoLog",
+      "description": "Product demonstrations"
+    },
+    "/followups/{followupId}": {
+      "schema": "followupLog",
+      "description": "Client interaction schedules"
+    },
+    "/activities/{activityId}": {
+      "schema": "activityLog",
+      "description": "Audit trailing of updates"
+    },
+    "/installations/{installationId}": {
+      "schema": "demoInstallation",
+      "description": "Installations of sold items"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "short_name": "Paradise CRM",
+  "name": "Paradise Group Customer Enquiry CRM",
+  "description": "Professional customer enquiry, service, demo, and follow-up CRM with offline capability and Supabase integration.",
+  "icons": [
+    {
+      "src": "/logo.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg"
+    },
+    {
+      "src": "/logo.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ],
+  "start_url": "/",
+  "scope": "/",
+  "background_color": "#FFFFFF",
+  "theme_color": "#1565C0",
+  "display": "standalone",
+  "orientation": "portrait"
+}
