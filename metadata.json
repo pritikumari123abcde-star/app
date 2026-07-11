@@ -1,6 +1,6 @@
 {
   "name": "Remix: Paradise Group CRM892",
-  "description": "Professional customer enquiry, service, demo, and follow-up CRM with offline capability and Supabase integration.",
+  "description": "Professional customer enquiry, service, demo, and follow-up CRM with offline capability and Firebase Realtime Database integration.",
   "requestFramePermissions": [
     "microphone"
   ],

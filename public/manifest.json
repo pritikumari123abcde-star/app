@@ -1,7 +1,7 @@
 {
   "short_name": "Paradise CRM",
   "name": "Paradise Group Customer Enquiry CRM",
-  "description": "Professional customer enquiry, service, demo, and follow-up CRM with offline capability and Supabase integration.",
+  "description": "Professional customer enquiry, service, demo, and follow-up CRM with offline capability and Firebase Realtime Database integration.",
   "icons": [
     {
       "src": "/logo.jpg",
