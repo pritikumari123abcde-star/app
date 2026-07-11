@@ -100,35 +100,5 @@
       },
       "required": ["id", "enquiryId", "customerName", "status", "createdAt"]
     }
-  },
-  "firestore": {
-    "/staff/{staffId}": {
-      "schema": "staff",
-      "description": "Authorized CRM staff members collection"
-    },
-    "/enquiries/{enquiryId}": {
-      "schema": "enquiry",
-      "description": "Customer sales and service enquiries"
-    },
-    "/services/{serviceId}": {
-      "schema": "serviceLog",
-      "description": "Product repairs and support services"
-    },
-    "/demos/{demoId}": {
-      "schema": "demoLog",
-      "description": "Product demonstrations"
-    },
-    "/followups/{followupId}": {
-      "schema": "followupLog",
-      "description": "Client interaction schedules"
-    },
-    "/activities/{activityId}": {
-      "schema": "activityLog",
-      "description": "Audit trailing of updates"
-    },
-    "/installations/{installationId}": {
-      "schema": "demoInstallation",
-      "description": "Installations of sold items"
-    }
   }
 }
