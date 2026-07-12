@@ -38,11 +38,14 @@ function getFirebaseDB() {
         }
       }
       
-      const dbUrl = config.databaseURL || `https://${config.projectId}-default-rtdb.firebaseio.com`;
+      const dbUrl = config.databaseURL;
+      if (!dbUrl) {
+        throw new Error("Missing databaseURL in Firebase configuration");
+      }
       config.databaseURL = dbUrl;
 
       firebaseApp = initializeApp(config);
-      firebaseDatabase = getDatabase(firebaseApp);
+      firebaseDatabase = getDatabase(firebaseApp, dbUrl);
       isFirebaseInitialized = true;
       console.log("[Firebase RTDB] Client successfully initialized with database URL:", dbUrl);
     } catch (err) {

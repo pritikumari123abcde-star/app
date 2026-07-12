@@ -18,7 +18,11 @@ import firebaseConfig from '../../firebase-applet-config.json';
 // Initialize Firebase Client SDK
 const app = initializeApp(firebaseConfig);
 const config = firebaseConfig as any;
-export const database = getDatabase(app, config.databaseURL || `https://${config.projectId}-default-rtdb.firebaseio.com`);
+const dbUrl = config.databaseURL;
+if (!dbUrl) {
+  throw new Error("Missing databaseURL in firebase-applet-config.json");
+}
+export const database = getDatabase(app, dbUrl);
 
 // Initial pre-seeded data for Electronics Retail CRM (Paradise Group)
 const INITIAL_STAFF: Staff[] = [
